@@ -1,0 +1,85 @@
+/// The public, bookable side of a mentor account.
+///
+/// Separate from `User` because being a MENTOR (a role on the identity) and being *bookable*
+/// (an approved, priced, categorised profile) are different things. A rejected or suspended
+/// mentor still has an account and a login; they just are not in the catalogue.
+model MentorProfile {
+  id         String         @id @default(cuid())
+  userId     String         @unique
+  user       User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   MentorCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  /// The catalogue name, owned separately from `User.displayName`: a mentor may practise under
+  /// a professional name without it becoming their account name.
+  displayName     String
+  headline        String?
+  bio             String?
+  /// Postgres text[]. Filtered with `has`, which is a sequential scan today — fine at catalogue
+  /// scale, and a GIN index is the fix if it ever is not.
+  languages       String[] @default([])
+  experienceYears Int      @default(0)
+
+  /// Money is integer paise, never a float. Frozen onto `Session` at creation, so changing it
+  /// here never reprices a live call or rewrites history.
+  /// A CHECK constraint enforces > 0: a zero rate makes `balance / rate` infinite, which is a
+  /// call that can never be cut off.
+  ratePaisePerMinute Int
+
+  approvalStatus   MentorApprovalStatus @default(PENDING)
+  /// Reason shown to the mentor on rejection, or recorded on suspension.
+  approvalNote     String?
+  approvedAt       DateTime?
+  /// No-FK scalar: the audit trail must survive the admin's account being deleted.
+  approvedByUserId String?
+
+  /// Presence read model. Redis holds live truth (M3); this column exists so the browse query
+  /// stays one indexed Postgres read instead of a per-mentor Redis lookup.
+  presenceState     PresenceState @default(OFFLINE)
+  presenceUpdatedAt DateTime?
+  /// A mentor can be online but closed to new sessions — finishing a queue before logging off.
+  acceptingNewCalls Boolean       @default(true)
+  /// Denormalised from the Redis queue (M6) for the browse card's "N waiting".
+  queueDepth        Int           @default(0)
+
+  /// Rating aggregate, maintained in the same transaction as the `Review` write (M7).
+  /// `ratingAvg` is stored rather than computed because it is a sort key: computing it per row
+  /// would make every browse query a sort over the whole catalogue.
+  /// A nightly reconciler re-derives all three from `Review` and reports drift.
+  ratingSum   Int   @default(0)
+  ratingCount Int   @default(0)
+  ratingAvg   Float @default(0)
+
+  /// Session history aggregates. `totalBilledSeconds` feeds the queue ETA in M6.
+  totalSessions      Int @default(0)
+  totalBilledSeconds Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions     Session[]
+  queueEntries QueueEntry[]
+  reviews      Review[]
+
+  /// Browse indexes. Two rules govern their shape, both learned from EXPLAIN rather than
+  /// assumed:
+  ///
+  /// 1. The `id` tiebreaker MUST be the trailing column. Keyset pagination orders by
+  ///    `(sortKey, id)`, and an index ending at `sortKey` cannot serve that ordering — Postgres
+  ///    adds a Sort node, materialising and sorting the entire filtered set on every page.
+  ///
+  /// 2. `presenceState` is deliberately NOT in any index. The "online only" filter is
+  ///    `IN ('ONLINE','BUSY')`, which is not an equality, so placing it between the filter
+  ///    columns and the sort key breaks index ordering for every query that does not use it.
+  ///    Left as a heap filter, the index still supplies the order and presence is checked per
+  ///    row — bounded by LIMIT, so the wasted reads are a handful.
+  ///
+  /// Descending indexes are scanned backwards for the mirrored ORDER BY, so the price index
+  /// serves both PRICE_ASC and PRICE_DESC, and the createdAt index serves both the NEWEST
+  /// browse and the oldest-first moderation queue.
+  @@index([approvalStatus, categoryId, ratingAvg(sort: Desc), id(sort: Desc)])
+  @@index([approvalStatus, ratingAvg(sort: Desc), id(sort: Desc)])
+  @@index([approvalStatus, categoryId, ratePaisePerMinute, id])
+  @@index([approvalStatus, ratePaisePerMinute, id])
+  @@index([approvalStatus, createdAt, id])
+}

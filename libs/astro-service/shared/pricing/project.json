@@ -1,0 +1,24 @@
+{
+  "name": "astro-service-pricing",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/astro-service/shared/pricing/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:contracts"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/astro-service/shared/pricing",
+        "command": "tsc -p tsconfig.lib.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "watch": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/astro-service/shared/pricing",
+        "command": "tsc -p tsconfig.lib.json --watch --preserveWatchOutput"
+      }
+    }
+  }
+}

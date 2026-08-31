@@ -1,0 +1,35 @@
+{
+  "name": "astro",
+  "private": true,
+  "scripts": {
+    "dev": "nx run astro-api:start:dev",
+    "web:dev": "nx run astro-web:dev",
+    "web:build": "nx run astro-web:build",
+    "build": "nx run astro-api:build",
+    "libs:build": "nx run-many -t build -p astro-service-contracts astro-service-pricing astro-service-errors astro-service-livekit",
+    "libs:watch": "nx run-many -t watch -p astro-service-contracts astro-service-pricing astro-service-errors astro-service-livekit --parallel=4",
+    "lint": "nx run-many -t lint",
+    "test": "nx run-many -t test",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v",
+    "emu:auth": "firebase emulators:start --only auth",
+    "prisma:generate": "nx run astro-api:prisma-generate",
+    "db:migrate": "nx run astro-api:db-migrate",
+    "db:migrate:deploy": "nx run astro-api:db-migrate-deploy",
+    "db:seed": "nx run astro-api:db-seed",
+    "db:studio": "nx run astro-api:db-studio",
+    "db:check-invariants": "nx run astro-api:db-check-invariants"
+  },
+  "workspaces": [
+    "apps/*",
+    "libs/astro-service/shared/contracts",
+    "libs/astro-service/shared/pricing",
+    "libs/astro-service/server/errors",
+    "libs/astro-service/server/livekit"
+  ],
+  "devDependencies": {
+    "nx": "21.6.3",
+    "socket.io-client": "^4.8.3"
+  }
+}

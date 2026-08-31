@@ -1,0 +1,57 @@
+/// The durable record of who queued for a mentor and how they left.
+///
+/// **Authority is split, not duplicated.** Redis answers the live questions — "what is my
+/// position", "who is next" — because those are a sorted-set read and a `ZPOPMIN`. This table
+/// answers the durable ones: who waited, how long, and whether they were promoted, gave up or
+/// timed out. Redis can be flushed; this cannot, which is what lets `QueueReconciler` rebuild
+/// the sorted set at everyone's original position rather than shuffling the line.
+model QueueEntry {
+  id String @id @default(cuid())
+
+  /// One entry per QUEUED session, and the session is created first. A queue entry with no
+  /// session would be a place in line nobody can be promoted into.
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  mentorProfileId String
+  mentorProfile   MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+
+  /// Denormalised so the sweeper can notify a user without joining through Session.
+  userId String
+  /// Voice and text queue together. A mentor takes one session at a time whichever mode it is,
+  /// so two queues would only let a text request jump a voice one.
+  mode   SessionMode
+
+  status QueueEntryStatus @default(WAITING)
+
+  /// **The ZSET score, in disguise.** `enqueuedAt.getTime()` is the score, which is what makes
+  /// the ordering stable and the reconciler's rebuild exact — a rebuilt queue puts everyone
+  /// back where they were rather than where the rebuild happened to reach them. It is also why
+  /// a failed promotion re-inserts at this value instead of at "now": losing a race must not
+  /// cost you your place.
+  enqueuedAt DateTime @default(now())
+
+  /// Set when the user's socket drops. The disconnect grace is measured from here, and it is
+  /// cleared on reconnect — backgrounding a mobile app is not abandonment.
+  disconnectedAt DateTime?
+
+  promotedAt DateTime?
+  leftAt     DateTime?
+  /// Why they stopped waiting. Free of the session's own end reason on purpose: a promoted
+  /// entry leaves the queue happily while its session goes on to end for some other reason.
+  leaveReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The reconciler's rebuild and the position query: everyone still waiting for one mentor,
+  /// in score order.
+  @@index([mentorProfileId, status, enqueuedAt])
+  /// The TTL and disconnect sweeps scan by age across all mentors.
+  @@index([status, enqueuedAt])
+  @@index([userId, status])
+
+  /// A partial unique index — `queue_entry_one_waiting_per_user`, added by hand in the
+  /// migration — enforces at most one WAITING entry per user. It backs up
+  /// `session_one_inflight_per_user`, which now covers QUEUED for the same reason.
+}

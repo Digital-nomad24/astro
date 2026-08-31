@@ -1,0 +1,29 @@
+# LiveKit server config for LOCAL DEVELOPMENT ONLY.
+#
+# The devkey/secret pair below is the well-known LiveKit development credential. It is public
+# by design and must never appear in any deployed environment — production uses LiveKit Cloud
+# with real keys from Secret Manager.
+
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  # Containers cannot discover a useful external IP; clients connect over the mapped ports.
+  use_external_ip: false
+
+keys:
+  devkey: secret
+
+# Drives the same webhook path production uses, so the M4 receiver and its signature
+# verification are exercised locally. `host.docker.internal` resolves to the host running
+# `npm run dev`; the port must match PORT in .env.
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:3000/webhooks/livekit
+
+logging:
+  level: info
+  json: false

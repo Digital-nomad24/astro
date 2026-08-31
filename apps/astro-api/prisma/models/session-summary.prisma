@@ -1,0 +1,53 @@
+/// The LLM-written record of one consultation.
+///
+/// For TEXT this is derived from the `ChatMessage` log; for VOICE from the recording, read
+/// **directly by Gemini with no STT stage** — which removes a vendor, a per-minute cost and a
+/// whole failure stage, and matters for quality because these consultations are heavily
+/// code-mixed Hindi/English, exactly where transcribe-then-summarise breaks.
+///
+/// This row is the durable artefact. The transcript that produced it is deleted after
+/// `CHAT_RETENTION_DAYS`, and the audio within minutes — so anything worth keeping has to be
+/// here. Deleting the source does not make this non-sensitive: a summary of a consultation is
+/// still personal data with its own retention and access rules.
+model SessionSummary {
+  id String @id @default(cuid())
+
+  /// One summary per session. The idempotency gate: egress webhooks fire more than once and
+  /// workers retry, so "has this already been summarised" must be a constraint, not a check.
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// Copied rather than joined — the producer differs by mode and this row outlives the
+  /// transcript that would otherwise tell you which one ran.
+  sourceMode SessionMode
+  status     SummaryStatus @default(PENDING)
+
+  body  String?
+  /// Which model wrote it. A summary produced by a since-retired model is still a summary, and
+  /// a quality complaint is unanswerable without knowing what produced it.
+  model String?
+
+  /// GCS object holding the recording, VOICE only. Cleared when the audio is deleted, which is
+  /// the point: a non-null value here after `audioDeletedAt` would mean a leaked object.
+  audioUri       String?
+  audioDeletedAt DateTime?
+
+  /// Retry bookkeeping. `attempts` bounds the loop; `claimedAt` is a lease so two workers
+  /// cannot process one row, and so a worker that died mid-job can be reclaimed rather than
+  /// leaving the summary stuck in PROCESSING forever.
+  attempts       Int       @default(0)
+  claimedAt      DateTime?
+  lastError      String?
+  completedAt    DateTime?
+  deadLetteredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The worker's sweep: oldest unfinished job first. A partial index narrowed to the
+  /// unfinished statuses is added by hand in the migration — this table only grows, and the
+  /// backlog does not.
+  @@index([status, createdAt])
+  /// The audio-deletion backstop seeks completed summaries that still hold an object.
+  @@index([audioDeletedAt])
+}

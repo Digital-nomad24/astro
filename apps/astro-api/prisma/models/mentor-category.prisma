@@ -1,0 +1,24 @@
+/// A consultation vertical — astrology, tarot, career coaching, and so on.
+///
+/// The product is deliberately domain-generic: nothing in the schema or the code knows what
+/// "astrology" means. Adding a vertical is a row, not a deploy.
+model MentorCategory {
+  id          String  @id @default(cuid())
+  /// URL-safe, stable, and what clients filter by. Renaming `name` never breaks a saved link.
+  slug        String  @unique
+  name        String
+  description String?
+  iconUrl     String?
+
+  /// Editorial ordering for the browse screen; ties break on name.
+  sortOrder   Int     @default(0)
+  /// Soft-retire a vertical without deleting mentors who belong to it.
+  isActive    Boolean @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  mentors     MentorProfile[]
+
+  @@index([isActive, sortOrder])
+}

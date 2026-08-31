@@ -1,0 +1,33 @@
+{
+  "name": "astro-web",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/astro-web/src",
+  "projectType": "application",
+  "tags": ["scope:astro", "type:app"],
+  "targets": {
+    "dev": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["astro-service-contracts:build"],
+      "options": {
+        "cwd": "apps/astro-web",
+        "command": "vite"
+      }
+    },
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": ["astro-service-contracts:build"],
+      "options": {
+        "cwd": "apps/astro-web",
+        "command": "tsc -b && vite build"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/astro-web",
+        "command": "eslint src --ext ts,tsx"
+      }
+    }
+  }
+}

@@ -1,0 +1,43 @@
+/// The Postgres shadow of a Firebase identity.
+///
+/// Provisioned by the auth guard on first authenticated request (M1) rather than by an
+/// explicit `POST /auth/sync` — the reference repo's two-step flow meant every use case began
+/// with a `requireSyncedUser()` call and a client that skipped the sync step got 401s that
+/// looked like auth bugs.
+///
+/// `role` is what makes a single Firebase project sufficient for both consumers and mentors.
+/// Being a MENTOR is necessary but not sufficient to take sessions — `MentorProfile`
+/// (M2) carries its own approval status.
+model User {
+  id           String       @id @default(cuid())
+  firebaseUid  String       @unique
+  role         Role         @default(USER)
+  /// Recorded at provisioning from the token's sign_in_provider claim. Never used to branch
+  /// authentication logic — one code path handles every provider.
+  authProvider AuthProvider @default(OTHER)
+
+  /// Not unique: the same address can legitimately arrive via different auth providers.
+  email       String?
+  phoneNumber String?   @unique
+  displayName String?
+  photoUrl    String?
+
+  /// Stamped once the user completes the post-signup profile step. Written with a
+  /// "stamp only if null" updateMany so a repeat call never moves it.
+  onboardedAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  /// Present only for mentor accounts. Its absence is what distinguishes a consumer.
+  mentorProfile MentorProfile?
+
+  /// Sessions this account booked AS THE CONSUMER. A mentor's own sessions hang off
+  /// `MentorProfile`, not here — the two sides of a consultation are different relations even
+  /// when the same person could in principle be on either.
+  sessions      Session[]      @relation("UserSessions")
+
+  @@index([role])
+  /// Admin lookup and the ADMIN_BOOTSTRAP_EMAILS seed both query by email.
+  @@index([email])
+}

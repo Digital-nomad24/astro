@@ -1,0 +1,94 @@
+/// Keep every member byte-identical to the `as const` arrays in
+/// `libs/astro-service/shared/contracts/src/lib/enums.ts`. Nothing enforces that
+/// automatically — a drift shows up as a runtime error, not a build failure.
+
+enum Role {
+  USER
+  MENTOR
+  ADMIN
+}
+
+/// Provenance only. Email/password and Google sign-in share one verification path — the
+/// client finishes the flow with the Firebase SDK and we verify the resulting ID token
+/// identically. The server runs no OAuth flow and holds no OAuth client secret.
+enum AuthProvider {
+  EMAIL_PASSWORD
+  GOOGLE
+  PHONE
+  OTHER
+}
+
+/// Gates whether a mentor is bookable. Orthogonal to `Role.MENTOR`, which only says the
+/// account is a mentor account.
+enum MentorApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+/// BUSY is derived, not set directly: an ONLINE mentor with an in-flight session is BUSY.
+enum PresenceState {
+  OFFLINE
+  ONLINE
+  BUSY
+}
+
+/// `VIDEO` is reserved: it exists so enabling video later is a grant change and a client
+/// release, not an enum migration against a live sessions table. `POST /sessions` rejects it
+/// with MODE_NOT_SUPPORTED today.
+enum SessionMode {
+  VOICE
+  TEXT
+  VIDEO
+}
+
+/// QUEUED is reachable only from M6. Until the queue exists, a busy mentor is a 409 at
+/// creation rather than a queued session nobody can be promoted out of.
+enum SessionStatus {
+  QUEUED
+  RINGING
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+/// Why a session stopped. Recorded on every terminal transition — a session that ended
+/// without a reason is a bug that has already erased its own evidence.
+enum SessionEndReason {
+  COMPLETED_BY_USER
+  COMPLETED_BY_MENTOR
+  BALANCE_EXHAUSTED
+  MAX_DURATION_REACHED
+  IDLE_TIMEOUT
+  RING_TIMEOUT
+  DECLINED
+  CANCELLED_BY_USER
+  MENTOR_OFFLINE
+  QUEUE_EXPIRED
+  MEDIA_FAILURE
+  ADMIN_TERMINATED
+}
+
+/// How a queue entry ended, or WAITING while it has not. Kept separate from
+/// `SessionEndReason`: a promoted entry leaves the queue happily while its session goes on to
+/// end for some entirely different reason.
+enum QueueEntryStatus {
+  WAITING
+  PROMOTED
+  CANCELLED
+  EXPIRED
+}
+
+/// The summarisation job's lifecycle.
+///
+/// PENDING → PROCESSING → COMPLETE, or back to PENDING on a retryable failure, or FAILED once
+/// the attempt counter is exhausted. FAILED is a dead letter, not a transient state: without
+/// it a poison recording retries until the GCS lifecycle rule deletes it and nobody finds out.
+enum SummaryStatus {
+  PENDING
+  PROCESSING
+  COMPLETE
+  FAILED
+}

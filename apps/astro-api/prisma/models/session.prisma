@@ -1,0 +1,140 @@
+/// One consultation, in either mode.
+///
+/// The state machine (M4) is shared by voice and text; only the ACTIVE-side plumbing differs.
+/// A mentor accepts a text consultation exactly as they accept a call, which is what lets a
+/// busy mentor have ONE queue in M6 rather than one per mode.
+model Session {
+  id     String        @id @default(cuid())
+  mode   SessionMode
+  status SessionStatus @default(RINGING)
+
+  userId String
+  user   User   @relation("UserSessions", fields: [userId], references: [id], onDelete: Cascade)
+
+  mentorProfileId String
+  mentorProfile   MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+
+  /// Denormalised from `MentorProfile.userId`. The `/calls` gateway and the webhook processor
+  /// both authorise on "is this caller one of the two participants", and making that a join
+  /// would put a second query on the webhook path, which must stay fast enough to return 200
+  /// before LiveKit's delivery timeout.
+  mentorUserId String
+
+  /// ---- economics, FROZEN at creation ----
+  /// Copies, never reads of `MentorProfile`. A mentor raising their rate mid-call must not
+  /// reprice the call, and a commission change must not rewrite history. Nothing in the
+  /// billing path may read `MentorProfile` — these two columns are why it never has to.
+  /// CHECK constraints enforce rate > 0 (a zero rate makes `balance / rate` infinite, i.e. a
+  /// call that can never be cut off) and 0 <= fee <= 10000 bps.
+  ratePaisePerMinute Int
+  platformFeeBps     Int
+
+  /// ---- lifecycle ----
+  createdAt  DateTime  @default(now())
+  /// When the mentor's device started ringing. The ring-timeout sweeper seeks on this.
+  ringingAt  DateTime?
+  acceptedAt DateTime?
+
+  /// The billing clock origin, and the one timestamp whose derivation differs by mode:
+  ///
+  /// - VOICE: stamped from the `participant_joined` webhook when the SECOND party joins. Not
+  ///   `createdAt`, not `acceptedAt` — a mentor must not bill for a user sitting alone in a
+  ///   room waiting for them to pick up their headset.
+  /// - TEXT (M5): stamped by the /chat gateway on the first message from either party.
+  ///
+  /// Written from M4 even though nothing charges against it until M10, so the ledger can be
+  /// layered on without touching the session lifecycle. Both paths stamp it with a
+  /// "only if null" updateMany, so a duplicate webhook or a burst of messages cannot move it.
+  billingAnchorAt DateTime?
+
+  endedAt   DateTime?
+  endReason SessionEndReason?
+
+  /// ---- LiveKit (VOICE only; null for TEXT) ----
+  /// Unique because the room name is derived from the session id: two sessions sharing a room
+  /// would mean two calls billing off one media stream.
+  livekitRoomName String? @unique
+  livekitRoomSid  String?
+  /// Incremented on every `participant_joined`, including rejoins. Distinct from the anchor:
+  /// the anchor is stamped once and never moves, this counts arrivals. A duplicate webhook
+  /// bumps this and leaves the anchor alone, which is exactly the behaviour we want to be
+  /// able to SEE when reconciling.
+  participantJoinCount Int @default(0)
+  /// Identities currently connected, maintained from participant_joined/left. Used by the
+  /// media-establish sweeper to tell "nobody ever arrived" from "one side dropped".
+  connectedIdentities String[] @default([])
+
+  /// ---- recording consent + egress ----
+  /// These land in M4, not M8, and the ordering is not negotiable: a recording taken without
+  /// consent cannot be un-taken. Shipping the columns with the session lifecycle means no
+  /// session ever predates them and there is never a backfill deciding what a null meant.
+  /// Consent gates `StartEgress` itself — never merely the summary that follows it.
+  recordingConsentUserAt   DateTime?
+  recordingConsentMentorAt DateTime?
+  egressId                 String?
+  /// Set when a summary can never be produced (no consent, egress failed, too short). A
+  /// session with no summary and no reason here is an unnoticed failure.
+  summaryIneligibleReason  String?
+
+  /// ---- reviews (M7) ----
+  review Review?
+
+  /// ---- summaries (M8) ----
+  summary SessionSummary?
+
+  /// ---- queue (M6; present only while the session was ever QUEUED) ----
+  queueEntry QueueEntry?
+
+  /// ---- text chat (M5; null for VOICE) ----
+  messages ChatMessage[]
+
+  /// Denormalised from the message log so the idle sweep is one indexed scan rather than an
+  /// aggregate over ChatMessage per candidate session. It is also the only thing that can
+  /// answer "when did this conversation last move" after the transcript is purged.
+  lastMessageAt DateTime?
+  /// Survives the purge on purpose: "14 messages, transcript deleted" is a meaningful thing to
+  /// show, and recomputing it from a table we have emptied is impossible.
+  messageCount  Int       @default(0)
+
+  /// When the transcript was deleted. Null means it is still retained — which for an ended
+  /// session means it is inside `CHAT_RETENTION_DAYS`, or waiting on a summary.
+  ///
+  /// The purge is delete-after-summarise plus a hard backstop, both. Delete-on-summarise alone
+  /// leaks transcripts forever whenever the summariser is broken; a backstop alone would hold
+  /// every transcript for the full window even when its summary landed in seconds.
+  messagesPurgedAt DateTime?
+
+  updatedAt DateTime @updatedAt
+
+  /// Session history, newest first, for both roles.
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([mentorProfileId, createdAt(sort: Desc)])
+  /// Ring-timeout sweeper: the RINGING rows whose `ringingAt` is older than the timeout.
+  @@index([status, ringingAt])
+  /// Media-establish sweeper (M4) and the billing sweeper (M10) both seek ACTIVE sessions by
+  /// anchor — including the ones where the anchor is still null, which is the failure case.
+  /// `mode` is deliberately absent: the media-establish sweep adds `mode: VOICE` as a heap
+  /// filter, and the ACTIVE-with-no-anchor set is tiny. Putting mode between `status` and the
+  /// anchor would break this index for M10's billing sweep, which spans both modes.
+  @@index([status, billingAnchorAt])
+  /// Chat idle sweep: ACTIVE text sessions whose conversation has gone quiet. `mode` earns its
+  /// place here — unlike the anchor sweep, this query is only ever about TEXT.
+  @@index([status, mode, lastMessageAt])
+  /// The webhook processor looks a session up by room name; `@unique` above already provides
+  /// that index, so there is deliberately no second `@@index([livekitRoomName])` here — it
+  /// would be write amplification on the session table for a lookup that is already covered.
+  ///
+  /// Two PARTIAL UNIQUE indexes are added by hand in the migration, because Prisma cannot
+  /// express a `WHERE` clause on an index:
+  ///
+  ///   session_one_inflight_per_user   ON (userId)          WHERE status IN ('QUEUED','RINGING','ACTIVE')
+  ///   session_one_inflight_per_mentor ON (mentorProfileId) WHERE status IN ('RINGING','ACTIVE')
+  ///
+  /// The two predicates differ on QUEUED, deliberately. A user may hold one place in one line;
+  /// a mentor may have any number of people queued for them, which is the point of a queue.
+  ///
+  /// These are the real mutual exclusion, not the application check that precedes them. Redis
+  /// can be flushed and a Lua lock can expire; a Postgres unique index cannot. In M6 the queue
+  /// dispatcher races two instances at one free mentor and the loser catches 23505 — that is
+  /// the designed path, not an error case.
+}

@@ -1,0 +1,48 @@
+/// A consumer's rating of one consultation.
+///
+/// **One review per session, not per mentor.** `sessionId @unique` is both the idempotency
+/// gate and the product rule: someone who consults the same mentor three times has three
+/// opinions worth recording, and a double-submit has one.
+///
+/// Reviews are one-directional in v1 — the consumer rates the mentor. A mentor rating their
+/// callers is a different feature with different moderation needs, and folding it in here
+/// would make "the rating" ambiguous on every read.
+model Review {
+  id String @id @default(cuid())
+
+  sessionId String  @unique
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  mentorProfileId String
+  mentorProfile   MentorProfile @relation(fields: [mentorProfileId], references: [id], onDelete: Cascade)
+
+  /// No-FK scalar, like the ledger's parent ids. A mentor's rating must not silently change
+  /// because a reviewer deleted their account — the review is a fact about the consultation,
+  /// not a possession of the person who wrote it.
+  authorUserId      String
+  /// Copied at write time for the same reason. Joining would resurrect the dependency the
+  /// no-FK scalar exists to avoid.
+  authorDisplayName String?
+
+  /// 1..5, enforced by a CHECK constraint. Whole stars only.
+  rating  Int
+  comment String?
+
+  /// Moderation. A hidden review is **excluded from the aggregate**, so hiding one has to
+  /// adjust `MentorProfile` in the same transaction — otherwise the browse card keeps counting
+  /// an opinion nobody can read.
+  isHidden     Boolean @default(false)
+  hiddenReason String?
+  /// No-FK scalar: the audit trail outlives the admin's account.
+  hiddenByUserId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// A mentor's public reviews, newest first, keyset-paginated. `isHidden` sits between the
+  /// mentor and the sort key because it is an equality filter — unlike `presenceState` on the
+  /// browse indexes, which is an IN and would break the ordering.
+  @@index([mentorProfileId, isHidden, createdAt(sort: Desc), id(sort: Desc)])
+  /// "Have I reviewed this?" and the reviewer's own history.
+  @@index([authorUserId, createdAt(sort: Desc)])
+}

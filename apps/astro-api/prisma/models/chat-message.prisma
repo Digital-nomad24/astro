@@ -1,0 +1,39 @@
+/// One message in a text consultation.
+///
+/// Deliberately Postgres and not LiveKit data channels. Data channels are ephemeral and
+/// unretrievable, so a user who refreshed mid-conversation would lose everything said before
+/// the reload — and there would be nothing for the M8 summariser to read.
+///
+/// **These rows are temporary.** A transcript is kept for `CHAT_RETENTION_DAYS` after the
+/// session ends, summarised, and then deleted; `Session.messagesPurgedAt` records when. The
+/// summary is the durable artefact, not this table. Anything that must outlive the transcript
+/// — the message count, the billing anchor, who spoke to whom — lives on `Session`.
+model ChatMessage {
+  id        String  @id @default(cuid())
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  /// No-FK scalar, like the ledger's parent ids: a message must still say who wrote it after
+  /// the author deletes their account. The `Session` row already carries both participants,
+  /// so nothing here needs the join.
+  senderUserId String
+
+  body String
+
+  /// Client-generated, and the reason a retry after a reconnect does not double-post. Paired
+  /// with the `@@unique` below it is the same idempotency primitive the ledger uses:
+  /// `createMany({ skipDuplicates: true })`, then read `count > 0` as "this was the first time".
+  clientMsgId String
+
+  /// Stamped by the server, never by the client. A client clock is both wrong and adversarial:
+  /// message ordering is what a dispute would turn on, and it is also the history sort key.
+  createdAt DateTime @default(now())
+
+  /// De-duplication gate. Scoped to the session rather than global so two clients cannot
+  /// collide by generating the same id, and so the index stays narrow.
+  @@unique([sessionId, clientMsgId])
+  /// History paging: newest-first within one session, seeking on (createdAt, id). The `id`
+  /// tiebreaker is not optional — two messages can share a millisecond, and without it a page
+  /// boundary silently skips or repeats them.
+  @@index([sessionId, createdAt(sort: Desc), id(sort: Desc)])
+}

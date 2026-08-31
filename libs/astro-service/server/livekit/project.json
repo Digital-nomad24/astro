@@ -1,0 +1,24 @@
+{
+  "name": "astro-service-livekit",
+  "$schema": "../../../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/astro-service/server/livekit/src",
+  "projectType": "library",
+  "tags": ["scope:shared", "type:infra"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/astro-service/server/livekit",
+        "command": "tsc -p tsconfig.lib.json"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "watch": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "libs/astro-service/server/livekit",
+        "command": "tsc -p tsconfig.lib.json --watch --preserveWatchOutput"
+      }
+    }
+  }
+}

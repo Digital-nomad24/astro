@@ -1,0 +1,25 @@
+# This file does not inherit .gitignore once present, so list everything explicitly.
+.gcloudignore
+.git
+.github
+node_modules
+**/node_modules
+dist
+**/dist
+build
+coverage
+.nx/cache
+.nx/workspace-data
+.vscode
+.idea
+.cursor
+*.log
+
+# Secrets
+.env
+**/.env
+**/.env.*
+!**/.env.example
+*firebase-adminsdk*.json
+*-service-account*.json
+astro-*.json

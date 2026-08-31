@@ -1,0 +1,75 @@
+{
+  "name": "astro-api",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/astro-api/src",
+  "projectType": "application",
+  "tags": ["scope:astro", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "astro-service-contracts:build",
+        "astro-service-pricing:build",
+        "astro-service-errors:build",
+        "astro-service-livekit:build"
+      ],
+      "options": {
+        "cwd": "apps/astro-api",
+        "command": "nest build"
+      },
+      "outputs": ["{projectRoot}/dist"]
+    },
+    "start:dev": {
+      "executor": "nx:run-commands",
+      "dependsOn": [
+        "astro-service-contracts:build",
+        "astro-service-pricing:build",
+        "astro-service-errors:build",
+        "astro-service-livekit:build"
+      ],
+      "options": {
+        "cwd": "apps/astro-api",
+        "command": "nest start --watch"
+      }
+    },
+    "lint": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "eslint \"{src,test}/**/*.ts\"" }
+    },
+    "test": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "jest --passWithNoTests" }
+    },
+    "test-e2e": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "jest --config ./test/jest-e2e.json --passWithNoTests" }
+    },
+    "prisma-generate": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "prisma generate" }
+    },
+    "db-migrate": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "prisma migrate dev" }
+    },
+    "db-migrate-deploy": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "prisma migrate deploy" }
+    },
+    "db-seed": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "tsx prisma/seed.ts" }
+    },
+    "db-studio": {
+      "executor": "nx:run-commands",
+      "options": { "cwd": "apps/astro-api", "command": "prisma studio" }
+    },
+    "db-check-invariants": {
+      "executor": "nx:run-commands",
+      "options": {
+        "cwd": "apps/astro-api",
+        "command": "tsx scripts/check-schema-invariants.ts"
+      }
+    }
+  }
+}

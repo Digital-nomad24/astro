@@ -1,0 +1,39 @@
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Nx
+.nx/cache
+.nx/workspace-data
+
+# Editors
+.vscode/
+.idea/
+.cursor/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Env — never commit real values
+.env
+.env.*
+!.env.example
+
+# Prisma generated client
+apps/*/prisma/src/generated/
+
+# Firebase emulator artifacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Credentials — this project uses ADC + Secret Manager and should never have
+# key material on disk. These patterns exist as a backstop, not a workflow.
+*firebase-adminsdk*.json
+*-service-account*.json
+astro-*.json
+!apps/*/prisma/**/*.json

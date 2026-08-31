@@ -1,0 +1,55 @@
+# Local development stack. Nothing here touches GCP — combined with the Firebase Auth
+# Emulator (`npm run emu:auth`), the whole product runs offline.
+#
+#   npm run infra:up      start
+#   npm run infra:down    stop, keep data
+#   npm run infra:reset   stop and DROP the database volume
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: astro-postgres
+    environment:
+      POSTGRES_USER: astro
+      POSTGRES_PASSWORD: astro
+      POSTGRES_DB: astro
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U astro -d astro']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: astro-redis
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Real SFU, so the webhook-driven session lifecycle and (from M9) billing are exercised
+  # locally rather than mocked. UDP range is deliberately small — enough for a handful of
+  # local participants, and publishing 10k ports on Windows is painfully slow.
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: astro-livekit
+    command: --config /etc/livekit.yaml
+    ports:
+      - '7880:7880'
+      - '7881:7881'
+      - '50000-50100:50000-50100/udp'
+    volumes:
+      - ./tools/livekit-dev.yaml:/etc/livekit.yaml:ro
+    extra_hosts:
+      # Lets the container POST webhooks back to the API running on the host.
+      - 'host.docker.internal:host-gateway'
+
+volumes:
+  pgdata:

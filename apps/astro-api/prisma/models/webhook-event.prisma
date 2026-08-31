@@ -1,0 +1,56 @@
+/// Durable inbox for inbound provider webhooks.
+///
+/// The receiver's contract is **verify → persist here → return 200 → process**, in that order.
+/// Returning 200 only after durable acceptance is what makes LiveKit retry a genuine failure
+/// instead of dropping an event we never recorded; and because the unique key is the
+/// provider's own event id, a redelivery is a no-op insert rather than a second charge.
+///
+/// Processing happens after the 200 because a webhook endpoint that does its work inline is
+/// racing the provider's delivery timeout, and a timeout looks identical to a rejection.
+model WebhookEvent {
+  id String @id @default(cuid())
+
+  /// Namespaced so a second provider cannot collide with LiveKit's id space.
+  source    String
+  /// LiveKit's `WebhookEvent.id`. Falls back to a sha256 of the exact body when absent — a
+  /// digest dedupes a redelivery of the same event, where a random id would re-process it.
+  eventId   String
+  eventType String
+
+  /// Denormalised from the payload so the inbox is queryable without JSON extraction when
+  /// reconciling a specific call.
+  roomName            String?
+  participantIdentity String?
+  /// Resolved from the room name at receipt. Null for a room we did not create.
+  sessionId           String?
+
+  /// The parsed body, kept verbatim. This is the evidence for any later reconciliation
+  /// argument about what LiveKit actually said and when.
+  payload Json
+
+  receivedAt DateTime @default(now())
+  /// Null until handled. The retry sweeper seeks on `(processedAt, receivedAt)`.
+  processedAt DateTime?
+  attempts    Int       @default(0)
+  lastError   String?
+
+  /// The idempotency gate. `createMany({ skipDuplicates: true })` against this reads
+  /// `count > 0` as "this delivery was the first one" — the same primitive the ledger uses.
+  @@unique([source, eventId])
+  @@index([sessionId])
+
+  /// The retry sweep reads only unprocessed rows, so its index is PARTIAL —
+  /// `webhook_event_unprocessed ON (receivedAt) WHERE processedAt IS NULL` — added by hand in
+  /// the migration. It stays the size of the backlog rather than the size of history, which
+  /// matters because this table only ever grows.
+  ///
+  /// Deliberately NOT declared as `@@index([processedAt, receivedAt])` here. Prisma models
+  /// indexes but has no way to express a WHERE clause, so declaring the full index and
+  /// dropping it in SQL would leave the schema and the database permanently disagreeing —
+  /// every subsequent `migrate dev` would propose recreating it. Leaving it undeclared has the
+  /// opposite failure mode: a future `migrate dev` will propose DROPPING the hand-made index,
+  /// because from Prisma's side it is an object nothing asked for. Both partial indexes and
+  /// every CHECK constraint in this schema share that exposure, which is why
+  /// `schema-invariants.e2e-spec.ts` asserts each one exists — a migration that quietly
+  /// removes one fails a test instead of a production invariant.
+}

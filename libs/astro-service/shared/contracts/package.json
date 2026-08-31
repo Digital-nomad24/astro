@@ -1,0 +1,17 @@
+{
+  "name": "@astro/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sockets": {
+      "types": "./dist/lib/sockets/index.d.ts",
+      "default": "./dist/lib/sockets/index.js"
+    }
+  }
+}
